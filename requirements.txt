@@ -1,0 +1,21 @@
+# Microsoft Agent Framework
+agent-framework
+agent-framework-redis
+
+# Azure Monitoring
+azure-monitor-opentelemetry-exporter>=1.0.0b41
+
+# Redis Vector Library
+redisvl
+
+# Azure Identity
+azure-identity
+
+# Redis
+redis
+
+# Environment
+python-dotenv
+
+# Weather API
+requests

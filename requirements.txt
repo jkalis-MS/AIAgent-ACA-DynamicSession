@@ -3,7 +3,7 @@ agent-framework
 agent-framework-redis
 
 # Azure Monitoring
-azure-monitor-opentelemetry-exporter>=1.0.0b41
+azure-monitor-opentelemetry-exporter
 
 # Redis Vector Library
 redisvl
@@ -19,3 +19,8 @@ python-dotenv
 
 # Weather API
 requests
+
+# Sandbox dependencies
+e2b-code-interpreter  # For E2B sandbox execution
+azure-identity  # For Azure Container Apps authentication
+daytona  # For Daytona sandbox execution

@@ -21,7 +21,7 @@ from tools.user_tools import (
     set_vectorizer
 )
 from tools.travel_tools import (
-    research_weather,
+    create_research_weather_tool,
     research_destination,
     find_flights,
     find_accommodation,
@@ -207,23 +207,26 @@ def main():
         # Create user-specific remember_preference tool
         remember_pref_tool = create_remember_preference_for_user(user_name)
         
+        # Create sandbox-specific research_weather tool
+        research_weather_tool = create_research_weather_tool(user_name)
+        
         # Create travel agent tools list specific to this user
         travel_tools = [
             get_semantic_preferences,  # For targeted preference searches
             remember_pref_tool,  # User-specific remember function
-            research_weather,
-            research_destination,
-            find_flights,
-            find_accommodation,
-            booking_assistance,
-            find_events,
-            make_purchase
+            research_weather_tool,  # Sandbox-specific weather research
+            # research_destination,
+            # find_flights,
+            # find_accommodation,
+            # booking_assistance,
+            # find_events,
+            # make_purchase
         ]
         
         try:
             agent = responses_client.create_agent(
                 name=agent_name,
-                description=f"{TRAVEL_AGENT_DESCRIPTION} for {user_name}",
+                description=f"{TRAVEL_AGENT_DESCRIPTION} for {user_name} (using {user_name} sandbox)",
                 instructions=TRAVEL_AGENT_INSTRUCTIONS,
                 tools=travel_tools,
                 chat_message_store_factory=chat_message_store_factory,
@@ -231,10 +234,11 @@ def main():
             )
             agents.append(agent)
             
+            sandbox_info = f"using {user_name} sandbox" if user_name != "Local" else "local execution"
             if redis_provider:
-                logger.info(f"✓ {agent_name} created with automatic context injection")
+                logger.info(f"✓ {agent_name} created with automatic context injection ({sandbox_info})")
             else:
-                logger.info(f"✓ {agent_name} created (explicit tools only)")
+                logger.info(f"✓ {agent_name} created - explicit tools only ({sandbox_info})")
             
         except Exception as e:
             logger.error(f"Failed to create agent for {user_name}: {e}")

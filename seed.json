@@ -1,9 +1,9 @@
 {
   "user_memories": {
-    "Local": [ { "insight": "Likes to stay boutique hotels" }, { "insight": "Likes to explore any professional sports in the vicinity" } ],
-    "Sandbox-E2B": [ { "insight": "Loves food tours" }, { "insight": "Prioritizes kids friendly activities" } ],
-    "Sandbox-Modal": [ { "insight": "Loves sunset photography" }, { "insight": "Enjoys running in the morning" } ],
-    "Sandbox-Daytona": [ { "insight": "Loves sunset photography" }, { "insight": "Enjoys running in the morning" } ],
-    "Sandbox-ACA": [ { "insight": "Loves food tours" }, { "insight": "Likes to explore any professional sports in the vicinity" } ]
+    "Local": [ { "insight": "Preferred city Prague" }, { "insight": "Loves sunset photography" }, { "insight": "Enjoys running in the morning" } ],
+    "Sandbox-E2B": [ { "insight": "Preferred city Prague" }, { "insight": "Loves sunset photography" }, { "insight": "Enjoys running in the morning" } ],
+    "Sandbox-Modal": [ { "insight": "Preferred city Prague" }, { "insight": "Loves sunset photography" }, { "insight": "Enjoys running in the morning" } ],
+    "Sandbox-Daytona": [ { "insight": "Preferred city Prague" }, { "insight": "Loves sunset photography" }, { "insight": "Enjoys running in the morning" } ],
+    "Sandbox-ACA": [ { "insight": "Preferred city Prague" }, { "insight": "Loves sunset photography" }, { "insight": "Enjoys running in the morning" } ]
   }
 }

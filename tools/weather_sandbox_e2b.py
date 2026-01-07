@@ -35,6 +35,11 @@ def research_weather_e2b(
             print(f"▶️ E2B Sandbox code execution starting for destination: {destination} ({create_time}ms)")
             code = f'''
 import requests
+import time
+
+# Checkpoint 1: Started running code
+start_time = time.time()
+checkpoint_1 = 0  # Start at 0ms
 
 destination = "{destination}"
 dates = "{dates}"
@@ -50,6 +55,9 @@ cities = {{
 
 lat, lon = cities.get(destination.lower(), (None, None))
 
+# Checkpoint 2 will be set after GPS lookup
+checkpoint_2 = None
+
 # Fallback to geocoding if city not found
 if not lat:
     try:
@@ -57,14 +65,19 @@ if not lat:
             f"https://geocoding-api.open-meteo.com/v1/search?name={{destination}}&count=1&format=json",
             timeout=5
         ).json()
+        checkpoint_2 = int((time.time() - start_time) * 1000)  # Time after GPS lookup
         if geo_resp.get('results'):
             lat, lon = geo_resp['results'][0]['latitude'], geo_resp['results'][0]['longitude']
         else:
             print(f"⚠️ Could not find weather data for '{{destination}}'. Try a major city name.")
             exit(0)
     except Exception as e:
+        checkpoint_2 = int((time.time() - start_time) * 1000)
         print(f"⚠️ Unable to fetch weather data: {{str(e)}}")
         exit(0)
+else:
+    # City found in local dict, no external call needed
+    checkpoint_2 = int((time.time() - start_time) * 1000)
 
 try:
     # Fetch weather data
@@ -75,6 +88,9 @@ try:
         f"&temperature_unit=fahrenheit&forecast_days=5",
         timeout=5
     ).json()
+    
+    # Checkpoint 3: Obtained weather forecast
+    checkpoint_3 = int((time.time() - start_time) * 1000)
     
     curr = weather['current']
     daily = weather['daily']
@@ -121,6 +137,17 @@ Feels like: {{feels_f}}°F ({{f_to_c(feels_f)}}°C) | Wind: {{curr['wind_speed_1
     if has_rain:
         result += "\\n• Don't forget an umbrella or rain jacket"
     
+    # Checkpoint 4: Finished formatting response
+    checkpoint_4 = int((time.time() - start_time) * 1000)
+    
+    # Append debug timing information
+    result += "\\n\\n⏱️ Debug Timing (Sandbox Execution):"
+    result += f"\\n  [1] Code started: 0ms"
+    result += f"\\n  [2] GPS lookup completed: {{checkpoint_2}}ms"
+    result += f"\\n  [3] Weather data obtained: {{checkpoint_3}}ms"
+    result += f"\\n  [4] Response formatted: {{checkpoint_4}}ms"
+    result += f"\\n  Total sandbox execution: {{checkpoint_4}}ms"
+    
     print(result)
     
 except Exception as e:
@@ -135,7 +162,12 @@ except Exception as e:
             if execution.error:
                 return f"⚠️ E2B Sandbox Error: {execution.error.name}: {execution.error.value}"
             
-            result = f"🔒 [E2B Sandbox]\n{execution.logs.stdout[0] if execution.logs.stdout else 'No output'}"
+            result_text = execution.logs.stdout[0] if execution.logs.stdout else 'No output'
+            
+            # Append total execution time (includes E2B overhead)
+            result_text += f"\n  [5] Total end-to-end time: {execution_time}ms"
+            
+            result = f"🔒 [E2B Sandbox]\n{result_text}"
             return result
             
         finally:

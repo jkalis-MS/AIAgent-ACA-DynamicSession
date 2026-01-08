@@ -1,12 +1,12 @@
 # Microsoft Agent Framework
-agent-framework
-agent-framework-redis
+agent-framework==1.0.0b251120
+agent-framework-redis==1.0.0b251120
 
 # Azure Monitoring
 azure-monitor-opentelemetry-exporter
 
 # Redis Vector Library
-redisvl
+redisvl==0.12.1
 
 # Azure Identity
 azure-identity

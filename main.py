@@ -9,14 +9,21 @@ from agent_framework.azure import AzureOpenAIResponsesClient
 from agent_framework import ChatAgent
 from agent_framework.devui import serve
 from azure.identity import AzureCliCredential
-from agent_framework.observability import get_tracer, setup_observability
+
+# Import observability with compatibility for different agent-framework versions
+try:
+    from agent_framework.observability import get_tracer, setup_observability
+    _use_setup_observability = True
+except ImportError:
+    from agent_framework.observability import get_tracer, configure_otel_providers
+    _use_setup_observability = False
 
 # AMR/AF: Tools and Agent section
 # Ignite Code Location
 # Import tools
 from tools.user_tools import (
     create_remember_preference_for_user,
-    get_semantic_preferences,
+    # get_semantic_preferences,
     set_redis_client,
     set_vectorizer
 )
@@ -63,7 +70,12 @@ def main():
 
     # Setup observability if connection string is provided
     if app_insights_conn_string:
-        setup_observability(enable_sensitive_data=True, applicationinsights_connection_string=app_insights_conn_string)
+        if _use_setup_observability:
+            # Older agent-framework version
+            setup_observability(enable_sensitive_data=True, applicationinsights_connection_string=app_insights_conn_string)
+        else:
+            # Newer agent-framework version
+            configure_otel_providers(enable_sensitive_data=True)
         logger.info("✓ Application Insights initialized successfully")
     else:
         logger.info("⚠ Application Insights connection string not found, skipping observability setup")
@@ -212,7 +224,7 @@ def main():
         
         # Create travel agent tools list specific to this user
         travel_tools = [
-            get_semantic_preferences,  # For targeted preference searches
+            # get_semantic_preferences,  # For targeted preference searches
             remember_pref_tool,  # User-specific remember function
             research_weather_tool,  # Sandbox-specific weather research
             # research_destination,

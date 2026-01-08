@@ -247,6 +247,14 @@ module app './core/host/container-app.bicep' = {
         name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
         value: applicationInsights.outputs.connectionString
       }
+      {
+        name: 'ACA_POOL_MANAGEMENT_ENDPOINT'
+        value: 'https://westus.dynamicsessions.io/subscriptions/49804dc1-8d23-4de4-9153-74c374a92937/resourceGroups/rg-AMRandAF/sessionPools/dynamic-sessions-python'
+      }
+      {
+        name: 'AZURE_CLIENT_ID'
+        value: containerAppIdentity.outputs.clientId
+      }
     ]
     secrets: [
       {

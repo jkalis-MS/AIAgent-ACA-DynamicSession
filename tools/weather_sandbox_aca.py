@@ -25,11 +25,19 @@ def research_weather_aca(
     pool_management_endpoint = os.getenv('ACA_POOL_MANAGEMENT_ENDPOINT')
     
     if not pool_management_endpoint:
-        return "⚠️ ACA_POOL_MANAGEMENT_ENDPOINT not found in environment variables. Please configure Azure Container Apps session pool."
+        logger.warning("⚠️ ACA_POOL_MANAGEMENT_ENDPOINT not configured")
+        return """⚠️ Azure Container Apps session pool not configured.
+
+To use ACA sandboxes:
+1. Create an ACA session pool in Azure Portal
+2. Set ACA_POOL_MANAGEMENT_ENDPOINT environment variable
+3. Ensure the container app's managed identity has 'Azure ContainerApps Session Executor' role
+
+Using local weather data instead..."""
     
     try:
         # Import Azure identity for authentication
-        from azure.identity import DefaultAzureCredential
+        from azure.identity import DefaultAzureCredential, ManagedIdentityCredential
         
         start_time = time.time()
         logger.info(f"☁️ ACA Sandbox creating for destination: {destination}")
@@ -48,8 +56,22 @@ def research_weather_aca(
         if needs_new_token:
             # Create credential if not exists
             if _aca_credential is None:
-                _aca_credential = DefaultAzureCredential()
-                logger.info("🔐 Created new DefaultAzureCredential instance")
+                # Check if running in Azure Container Apps
+                managed_identity_client_id = os.getenv('AZURE_CLIENT_ID')
+                container_app_name = os.getenv('CONTAINER_APP_NAME')
+                
+                if managed_identity_client_id:
+                    # Use ManagedIdentityCredential with explicit client_id
+                    logger.info(f"🔐 Using ManagedIdentityCredential with client_id (Container App: {container_app_name})")
+                    _aca_credential = ManagedIdentityCredential(client_id=managed_identity_client_id)
+                elif container_app_name or os.getenv('WEBSITE_INSTANCE_ID'):
+                    # In Azure but no client_id provided, try system-assigned identity
+                    logger.info(f"🔐 Using ManagedIdentityCredential with system-assigned identity (Container App: {container_app_name})")
+                    _aca_credential = ManagedIdentityCredential()
+                else:
+                    # Running locally
+                    logger.info("🔐 Using DefaultAzureCredential (running locally)")
+                    _aca_credential = DefaultAzureCredential()
             
             # Get fresh access token
             token_response = _aca_credential.get_token("https://dynamicsessions.io/.default")

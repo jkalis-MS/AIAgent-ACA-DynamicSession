@@ -1,17 +1,17 @@
-# Microsoft Agent Framework
-agent-framework==1.0.0b251120
-agent-framework-redis==1.0.0b251120
+# Microsoft Agent Framework - use latest versions
+agent-framework>=1.0.0b260107
+agent-framework-redis>=1.0.0b260107
 
-# Azure Monitoring
-azure-monitor-opentelemetry-exporter
+# Azure Monitoring - Use Distro for automatic instrumentation
+azure-monitor-opentelemetry
 
-# Redis Vector Library
+# Redis Vector Library - pin to 0.12.1 for compatibility with agent-framework-redis
 redisvl==0.12.1
 
 # Azure Identity
 azure-identity
 
-# Redis
+# Redis - use latest
 redis
 
 # Environment
@@ -22,5 +22,4 @@ requests
 
 # Sandbox dependencies
 e2b-code-interpreter  # For E2B sandbox execution
-azure-identity  # For Azure Container Apps authentication
 daytona  # For Daytona sandbox execution

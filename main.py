@@ -1,22 +1,82 @@
 """Main application entry point for Travel Chat Agent."""
 import os
+import sys
 import json
-import logging
-import asyncio
 from dotenv import load_dotenv
+
+# Load environment variables FIRST
+load_dotenv()
+
+import logging
+
+# Configure logging early
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Reduce verbosity of noisy loggers
+for logger_name in [
+    'azure.core.pipeline.policies.http_logging_policy',
+    'azure.monitor.opentelemetry',
+    'opentelemetry',
+    'uvicorn.access',
+    'httpx',
+    'httpcore',
+]:
+    logging.getLogger(logger_name).setLevel(logging.ERROR)
+
+# Configure Azure Monitor FIRST (before any agent framework imports)
+app_insights_conn_string = os.getenv('APPLICATIONINSIGHTS_CONNECTION_STRING')
+if app_insights_conn_string:
+    conn_parts = dict(part.split('=', 1) for part in app_insights_conn_string.split(';') if '=' in part)
+    endpoint = conn_parts.get('IngestionEndpoint', 'unknown')
+    logger.info(f"🔗 Application Insights Connection String detected")
+    logger.info(f"   Endpoint: {endpoint}")
+    logger.info(f"   InstrumentationKey: {conn_parts.get('InstrumentationKey', 'unknown')[:8]}...")
+    
+    try:
+        from azure.monitor.opentelemetry import configure_azure_monitor
+        from agent_framework.observability import create_resource, enable_instrumentation
+        
+        # Disable httpx and httpcore instrumentation to prevent DevUI streaming trace flood
+        os.environ["OTEL_PYTHON_DISABLED_INSTRUMENTATIONS"] = "httpx,httpcore"
+        
+        # Configure Azure Monitor with resource attributes
+        resource = create_resource(
+            service_name="cool-vibes-travel-agent",
+            service_version="1.0.0"
+        )
+        
+        configure_azure_monitor(
+            connection_string=app_insights_conn_string,
+            resource=resource,
+            enable_live_metrics=True,
+        )
+        
+        # Enable instrumentation for agent framework (httpx/httpcore are excluded)
+        enable_instrumentation()
+        
+        logger.info("✓ Azure Monitor configured with instrumentation")
+        logger.info("   httpx/httpcore disabled to prevent streaming trace flood")
+        logger.info("   Agent runs, tool calls, and Redis operations will be captured")
+        
+    except ImportError as e:
+        logger.warning(f"⚠ Failed to import observability modules: {e}")
+    except Exception as e:
+        logger.error(f"✗ Failed to configure Azure Monitor: {e}")
+else:
+    logger.info("⚠ APPLICATIONINSIGHTS_CONNECTION_STRING not found, skipping observability")
+
+# NOW import agent_framework modules
+import asyncio
 import redis
 from agent_framework.azure import AzureOpenAIResponsesClient
 from agent_framework import ChatAgent
 from agent_framework.devui import serve
 from azure.identity import AzureCliCredential
-
-# Import observability with compatibility for different agent-framework versions
-try:
-    from agent_framework.observability import get_tracer, setup_observability
-    _use_setup_observability = True
-except ImportError:
-    from agent_framework.observability import get_tracer, configure_otel_providers
-    _use_setup_observability = False
+from agent_framework.observability import get_tracer
 
 # AMR/AF: Tools and Agent section
 # Ignite Code Location
@@ -46,39 +106,15 @@ from agents.travel_agent import (
 # Import conversation storage
 from conversation_storage import create_chat_message_store_factory
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
 
 def main():
     """Initialize and run the Travel Chat Agent."""
     
-    # Load environment variables
-    load_dotenv()
-    
-    # Get configuration
+    # Get configuration (env vars already loaded at module level)
     redis_url = os.getenv('REDIS_URL')
     azure_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
     azure_key = os.getenv('AZURE_OPENAI_API_KEY')
     azure_deployment = os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME')
-
-    app_insights_conn_string = os.getenv('APPLICATIONINSIGHTS_CONNECTION_STRING')
-
-    # Setup observability if connection string is provided
-    if app_insights_conn_string:
-        if _use_setup_observability:
-            # Older agent-framework version
-            setup_observability(enable_sensitive_data=True, applicationinsights_connection_string=app_insights_conn_string)
-        else:
-            # Newer agent-framework version
-            configure_otel_providers(enable_sensitive_data=True)
-        logger.info("✓ Application Insights initialized successfully")
-    else:
-        logger.info("⚠ Application Insights connection string not found, skipping observability setup")
     
     if not all([redis_url, azure_endpoint, azure_key, azure_deployment]):
         logger.error("Missing required environment variables. Please check your .env file.")
@@ -241,7 +277,7 @@ def main():
                 description=f"{TRAVEL_AGENT_DESCRIPTION} for {user_name} (using {user_name} sandbox)",
                 instructions=TRAVEL_AGENT_INSTRUCTIONS,
                 tools=travel_tools,
-                chat_message_store_factory=chat_message_store_factory,
+                # Don't use chat_message_store_factory - we'll pass message_store to run()
                 context_providers=redis_provider if redis_provider else None
             )
             agents.append(agent)
@@ -260,7 +296,7 @@ def main():
     # Start DevUI
     logger.info("Starting DevUI...")
     logger.info("=" * 60)
-    logger.info("🚀 Travel Chat Agents are ready!")
+    logger.info("🚀 Travel Chat Agents are ready! V2.1")
     logger.info("=" * 60)
     logger.info("Access the DevUI in your browser to start chatting")
     logger.info(f"Available agents: {', '.join([a.name for a in agents])}")
@@ -268,13 +304,23 @@ def main():
     logger.info("Each agent has personalized context for their user")
     logger.info("=" * 60)
     
+    # Option 1: Terminal Shell Interface (Recommended for testing without trace flooding)
+    # Uncomment to use interactive terminal chat instead of DevUI
+    
+    from shell_endpoint import run_shell_interface
+    agents_dict = {agent.name: agent for agent in agents}
+    run_shell_interface(agents_dict)
+    return  # Exit without starting DevUI
+    
+    
+    # Option 2: DevUI Interface (default)
     # Start DevUI with all user agents
-    serve(
-        entities=agents,
-        host="0.0.0.0",
-        port=8000,
-        auto_open=False
-    )
+    # serve(
+    #     entities=agents,
+    #     host="0.0.0.0",
+    #     port=8000,
+    #     auto_open=False
+    # )
 
 
 if __name__ == "__main__":

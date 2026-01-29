@@ -95,7 +95,7 @@ def create_redis_provider(user_name: str, redis_url: str, vectorizer: AzureOpenA
         vector_field_name="embedding",
         vector_algorithm="hnsw",
         vector_distance_metric="cosine",
-        scope_to_per_operation_thread_id=True,  # Enable per-conversation thread isolation
+        scope_to_per_operation_thread_id=False,  # Allow multiple operations on same thread
         overwrite_index=overwrite_index  # Only overwrite for first provider
     )
     

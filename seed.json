@@ -1,9 +1,6 @@
 {
   "user_memories": {
     "Local": [ { "insight": "Preferred city Prague" }, { "insight": "Loves sunset photography" }, { "insight": "Enjoys running in the morning" } ],
-    "Sandbox-E2B": [ { "insight": "Preferred city Prague" }, { "insight": "Loves sunset photography" }, { "insight": "Enjoys running in the morning" } ],
-    "Sandbox-Modal": [ { "insight": "Preferred city Prague" }, { "insight": "Loves sunset photography" }, { "insight": "Enjoys running in the morning" } ],
-    "Sandbox-Daytona": [ { "insight": "Preferred city Prague" }, { "insight": "Loves sunset photography" }, { "insight": "Enjoys running in the morning" } ],
-    "Sandbox-ACA": [ { "insight": "Preferred city Prague" }, { "insight": "Loves sunset photography" }, { "insight": "Enjoys running in the morning" } ]
+    "ACA-DynamicSession": [ { "insight": "Preferred city Prague" }, { "insight": "Loves sunset photography" }, { "insight": "Enjoys running in the morning" } ]
   }
 }

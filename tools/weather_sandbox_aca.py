@@ -90,8 +90,9 @@ Using local weather data instead..."""
         
         auth_header = f"Bearer {_aca_token}"
         
-        # Generate a session identifier (use a consistent ID for session reuse)
-        session_id = f"weather-{destination.lower().replace(' ', '-')}"
+        # Generate a session identifier (use timestamp for unique sessions to avoid caching issues)
+        # Note: Each execution creates a new session - no session reuse
+        session_id = f"weather-{destination.lower().replace(' ', '-')}-{int(time.time())}"
         
         auth_time = int((time.time() - start_time) * 1000)
         logger.info(f"🔑 Identity for ACA ready ({auth_time}ms)")
@@ -281,13 +282,39 @@ except Exception as e:
                 # Append total execution time (includes network + ACA overhead)
                 result_text += f"\n  [5] Total end-to-end time: {execution_time}ms"
                 
+                # Check if sandbox encountered network restrictions or errors
+                network_error_indicators = [
+                    "ProxyError", 
+                    "Unable to connect to proxy", 
+                    "Tunnel connection failed",
+                    "Failed to resolve",
+                    "NameResolutionError",
+                    "Max retries exceeded",
+                    "Error fetching weather data"
+                ]
+                
+                if any(indicator in result_text for indicator in network_error_indicators):
+                    logger.warning("⚠️ ACA sandbox network restriction detected - falling back to local execution")
+                    from .weather_sandbox_local import research_weather_local
+                    local_result = research_weather_local(destination, dates)
+                    return f"⚠️ ACA sandbox has network restrictions - executed locally instead\n\n{local_result}"
+                
                 return f"☁️ [Azure Container Apps Sandbox]\n{result_text}"
         
         return f"☁️ [Azure Container Apps Sandbox]\n{str(result_data)}"
             
     except ImportError as e:
-        return f"⚠️ Azure Identity not installed. Install with: pip install azure-identity\nError: {str(e)}"
+        logger.warning("⚠️ Azure Identity not available - falling back to local execution")
+        from .weather_sandbox_local import research_weather_local
+        return research_weather_local(destination, dates)
     except requests.exceptions.HTTPError as e:
-        return f"⚠️ ACA API Error: {e.response.status_code} - {e.response.text}"
+        error_msg = f"⚠️ ACA API Error: {e.response.status_code} - {e.response.text}"
+        logger.error(error_msg)
+        logger.warning("Falling back to local execution...")
+        from .weather_sandbox_local import research_weather_local
+        return research_weather_local(destination, dates)
     except Exception as e:
-        return f"⚠️ Failed to execute in ACA sandbox: {str(e)}"
+        logger.error(f"⚠️ Failed to execute in ACA sandbox: {str(e)}")
+        logger.warning("Falling back to local execution...")
+        from .weather_sandbox_local import research_weather_local
+        return research_weather_local(destination, dates)

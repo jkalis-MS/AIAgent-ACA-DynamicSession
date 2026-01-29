@@ -1,25 +1,14 @@
 # Microsoft Agent Framework - use latest versions
 agent-framework>=1.0.0b260107
-agent-framework-redis>=1.0.0b260107
 
 # Azure Monitoring - Use Distro for automatic instrumentation
 azure-monitor-opentelemetry
 
-# Redis Vector Library - pin to 0.12.1 for compatibility with agent-framework-redis
-redisvl==0.12.1
-
 # Azure Identity
 azure-identity
-
-# Redis - use latest
-redis
 
 # Environment
 python-dotenv
 
 # Weather API
 requests
-
-# Sandbox dependencies
-e2b-code-interpreter  # For E2B sandbox execution
-daytona  # For Daytona sandbox execution

@@ -28,6 +28,8 @@ for logger_name in [
     logging.getLogger(logger_name).setLevel(logging.ERROR)
 
 # Configure Azure Monitor FIRST (before any agent framework imports)
+# Following Pattern #3: Third party setup from Agent Framework documentation
+# https://learn.microsoft.com/en-us/agent-framework/user-guide/observability?pivots=programming-language-python#3-third-party-setup
 app_insights_conn_string = os.getenv('APPLICATIONINSIGHTS_CONNECTION_STRING')
 if app_insights_conn_string:
     conn_parts = dict(part.split('=', 1) for part in app_insights_conn_string.split(';') if '=' in part)
@@ -37,30 +39,48 @@ if app_insights_conn_string:
     logger.info(f"   InstrumentationKey: {conn_parts.get('InstrumentationKey', 'unknown')[:8]}...")
     
     try:
+        # CRITICAL: Disable ALL auto-instrumentations BEFORE importing Azure Monitor
+        # Azure Monitor's configure_azure_monitor() enables many instrumentations by default
+        # We ONLY want Agent Framework's manual spans (invoke_agent, chat, execute_tool)
+        os.environ["OTEL_PYTHON_DISABLED_INSTRUMENTATIONS"] = (
+            "httpx,httpcore,urllib,urllib3,requests,asgi,fastapi,flask,django,"
+            "psycopg2,dbapi,system_metrics"
+        )
+        
         from azure.monitor.opentelemetry import configure_azure_monitor
         from agent_framework.observability import create_resource, enable_instrumentation
         
-        # Disable httpx and httpcore instrumentation to prevent DevUI streaming trace flood
-        os.environ["OTEL_PYTHON_DISABLED_INSTRUMENTATIONS"] = "httpx,httpcore"
-        
-        # Configure Azure Monitor with resource attributes
+        # Configure Azure Monitor with minimal instrumentation
         resource = create_resource(
             service_name="cool-vibes-travel-agent",
-            service_version="1.0.0"
+            service_version="2.0.0"
         )
         
+        # Disable all auto-instrumentations via instrumentation_options
         configure_azure_monitor(
             connection_string=app_insights_conn_string,
             resource=resource,
             enable_live_metrics=True,
+            # Disable ALL instrumentations - we only want manual Agent Framework spans
+            instrumentation_options={
+                "azure_sdk": {"enabled": False},
+                "django": {"enabled": False},
+                "fastapi": {"enabled": False},
+                "flask": {"enabled": False},
+                "psycopg2": {"enabled": False},
+                "requests": {"enabled": False},
+                "urllib": {"enabled": False},
+                "urllib3": {"enabled": False},
+            }
         )
         
-        # Enable instrumentation for agent framework (httpx/httpcore are excluded)
-        enable_instrumentation()
+        # Then activate Agent Framework's telemetry code paths
+        # Only captures: invoke_agent, chat, execute_tool spans (the important ones)
+        enable_instrumentation(enable_sensitive_data=False)
         
-        logger.info("✓ Azure Monitor configured with instrumentation")
-        logger.info("   httpx/httpcore disabled to prevent streaming trace flood")
-        logger.info("   Agent runs, tool calls, and Redis operations will be captured")
+        logger.info("✓ Azure Monitor configured with MINIMAL instrumentation")
+        logger.info("   ALL auto-instrumentations disabled (HTTP, DB, frameworks)")
+        logger.info("   ONLY Agent Framework manual spans enabled (invoke_agent, chat, execute_tool)")
         
     except ImportError as e:
         logger.warning(f"⚠ Failed to import observability modules: {e}")
@@ -71,7 +91,6 @@ else:
 
 # NOW import agent_framework modules
 import asyncio
-import redis
 from agent_framework.azure import AzureOpenAIResponsesClient
 from agent_framework import ChatAgent
 from agent_framework.devui import serve
@@ -79,14 +98,8 @@ from azure.identity import AzureCliCredential
 from agent_framework.observability import get_tracer
 
 # AMR/AF: Tools and Agent section
-# Ignite Code Location
 # Import tools
-from tools.user_tools import (
-    create_remember_preference_for_user,
-    # get_semantic_preferences,
-    set_redis_client,
-    set_vectorizer
-)
+from tools.user_tools import create_remember_preference_for_user
 from tools.travel_tools import (
     create_research_weather_tool,
     research_destination,
@@ -103,54 +116,19 @@ from agents.travel_agent import (
     TRAVEL_AGENT_INSTRUCTIONS
 )
 
-# Import conversation storage
-from conversation_storage import create_chat_message_store_factory
-
 
 def main():
     """Initialize and run the Travel Chat Agent."""
     
     # Get configuration (env vars already loaded at module level)
-    redis_url = os.getenv('REDIS_URL')
     azure_endpoint = os.getenv('AZURE_OPENAI_ENDPOINT')
     azure_key = os.getenv('AZURE_OPENAI_API_KEY')
     azure_deployment = os.getenv('AZURE_OPENAI_DEPLOYMENT_NAME')
     
-    if not all([redis_url, azure_endpoint, azure_key, azure_deployment]):
+    if not all([azure_endpoint, azure_key, azure_deployment]):
         logger.error("Missing required environment variables. Please check your .env file.")
-        logger.error("Required: REDIS_URL, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT_NAME")
+        logger.error("Required: AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT_NAME")
         return
-    
-    # Initialize Redis client
-    logger.info("Connecting to Azure Managed Redis...")
-    try:
-        redis_client = redis.from_url(redis_url, decode_responses=False)
-        redis_client.ping()
-        logger.info("✓ Connected to Redis successfully")
-    except Exception as e:
-        logger.error(f"Failed to connect to Redis: {e}")
-        return
-    
-    # Set Redis client for user tools
-    set_redis_client(redis_client)
-    
-    # NOTE: Vector search is now handled by RedisProvider (initialized below)
-    # The old manual context_provider.py approach has been replaced
-    
-    # Create chat message store factory for conversation persistence
-    logger.info("Initializing conversation storage with Redis...")
-    try:
-        chat_message_store_factory = create_chat_message_store_factory(redis_url)
-        logger.info("✓ Conversation storage configured")
-        logger.info("  Conversations will be stored under: cool-vibes-agent-vnext:Conversations")
-    except Exception as e:
-        logger.error(f"Failed to initialize conversation storage: {e}")
-        logger.warning("⚠ Continuing without conversation persistence")
-        chat_message_store_factory = None
-    
-    # Note: Vector search components are no longer needed here since tools now use
-    # the Context:* namespace that RedisProvider manages. All preference data is seeded
-    # via seed_redis_providers_directly() below.
     
     # Initialize Azure OpenAI Responses client
     logger.info("Initializing Azure OpenAI Responses client...")
@@ -182,75 +160,17 @@ def main():
             users = list(seed_data.get('user_memories', {}).keys())
         logger.info(f"✓ Found {len(users)} users: {', '.join(users)}")
     except Exception as e:
-        logger.error(f"Failed to initialize Azure OpenAI Responses client: {e}")
-        return
+        logger.error(f"Failed to load users: {e}")
+        # Default to these users if seed.json fails
+        users = ["Local", "ACA-DynamicSession"]
+        logger.info(f"✓ Using default users: {', '.join(users)}")
     
-    # Set global Redis client for user tools
-    set_redis_client(redis_client)
-    
-    # Create RedisProviders - need to create index BEFORE seeding data
-    logger.info("Initializing Redis context system...")
-    redis_providers = {}
-    
-    try:
-        from redis_provider import create_redis_provider, create_vectorizer
-        from seeding import seed_to_redis_directly_sync
-        
-        # Create shared vectorizer once for consistency
-        shared_vectorizer = create_vectorizer()
-        logger.info("✓ Created shared vectorizer")
-        
-        # Set vectorizer for user tools (enables remember_preference and get_semantic_preferences)
-        set_vectorizer(shared_vectorizer)
-        logger.info("✓ Vectorizer set for user tools")
-        
-        # Create FIRST provider to initialize the index (with overwrite_index=True)
-        # This ensures the index exists before we seed data
-        first_user = users[0]
-        logger.info(f"Creating first RedisProvider to initialize index...")
-        first_provider = create_redis_provider(
-            first_user, 
-            redis_url, 
-            shared_vectorizer,
-            overwrite_index=True
-        )
-        redis_providers[first_user] = first_provider
-        logger.info(f"✓ Index created via {first_user}'s provider")
-        
-        # NOW seed data - index exists so data will be indexed
-        logger.info("Seeding user preferences directly to Redis...")
-        seed_success = seed_to_redis_directly_sync(redis_url, shared_vectorizer)
-        if seed_success:
-            logger.info("✓ User preferences seeded and indexed")
-        else:
-            logger.warning("⚠ Seeding failed, providers will start with empty context")
-        
-        # Create remaining RedisProviders (overwrite_index=False)
-        logger.info("Creating remaining RedisProviders...")
-        for user_name in users[1:]:
-            try:
-                provider = create_redis_provider(
-                    user_name, 
-                    redis_url, 
-                    shared_vectorizer,
-                    overwrite_index=False  # Don't recreate index
-                )
-                redis_providers[user_name] = provider
-                logger.info(f"✓ RedisProvider created for {user_name}")
-            except Exception as e:
-                logger.error(f"Failed to create RedisProvider for {user_name}: {e}")
-        
-    except Exception as e:
-        logger.error(f"Failed to initialize RedisProviders: {e}")
-        redis_providers = {}
-    
-    # Create one agent per user with their RedisProvider
+    # Create one agent per user
     logger.info("Creating travel agents for each user...")
     agents = []
     
     for user_name in users:
         agent_name = f"{user_name}-cool-vibes-travel-agent"
-        redis_provider = redis_providers.get(user_name)
         
         # Create user-specific remember_preference tool
         remember_pref_tool = create_remember_preference_for_user(user_name)
@@ -260,7 +180,6 @@ def main():
         
         # Create travel agent tools list specific to this user
         travel_tools = [
-            # get_semantic_preferences,  # For targeted preference searches
             remember_pref_tool,  # User-specific remember function
             research_weather_tool,  # Sandbox-specific weather research
             # research_destination,
@@ -272,21 +191,17 @@ def main():
         ]
         
         try:
-            agent = responses_client.create_agent(
+            agent = ChatAgent(
                 name=agent_name,
+                chat_client=responses_client,
                 description=f"{TRAVEL_AGENT_DESCRIPTION} for {user_name} (using {user_name} sandbox)",
                 instructions=TRAVEL_AGENT_INSTRUCTIONS,
-                tools=travel_tools,
-                # Don't use chat_message_store_factory - we'll pass message_store to run()
-                context_providers=redis_provider if redis_provider else None
+                tools=travel_tools
             )
             agents.append(agent)
             
             sandbox_info = f"using {user_name} sandbox" if user_name != "Local" else "local execution"
-            if redis_provider:
-                logger.info(f"✓ {agent_name} created with automatic context injection ({sandbox_info})")
-            else:
-                logger.info(f"✓ {agent_name} created - explicit tools only ({sandbox_info})")
+            logger.info(f"✓ {agent_name} created ({sandbox_info})")
             
         except Exception as e:
             logger.error(f"Failed to create agent for {user_name}: {e}")
@@ -296,31 +211,22 @@ def main():
     # Start DevUI
     logger.info("Starting DevUI...")
     logger.info("=" * 60)
-    logger.info("🚀 Travel Chat Agents are ready! V2.1")
+    logger.info("🚀 Travel Chat Agents are ready! V3.0 (No Redis)")
     logger.info("=" * 60)
     logger.info("Access the DevUI in your browser to start chatting")
     logger.info(f"Available agents: {', '.join([a.name for a in agents])}")
     logger.info("Select an agent from the dropdown to start a conversation")
-    logger.info("Each agent has personalized context for their user")
     logger.info("=" * 60)
     
-    # Option 1: Terminal Shell Interface (Recommended for testing without trace flooding)
-    # Uncomment to use interactive terminal chat instead of DevUI
-    
-    from shell_endpoint import run_shell_interface
-    agents_dict = {agent.name: agent for agent in agents}
-    run_shell_interface(agents_dict)
-    return  # Exit without starting DevUI
-    
-    
-    # Option 2: DevUI Interface (default)
     # Start DevUI with all user agents
-    # serve(
-    #     entities=agents,
-    #     host="0.0.0.0",
-    #     port=8000,
-    #     auto_open=False
-    # )
+    # Use 0.0.0.0 in containers, localhost for local dev
+    host = os.getenv('HOST', '0.0.0.0')
+    serve(
+        entities=agents,
+        host=host,
+        port=8000,
+        auto_open=False
+    )
 
 
 if __name__ == "__main__":

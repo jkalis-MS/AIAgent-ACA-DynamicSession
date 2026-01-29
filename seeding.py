@@ -147,7 +147,7 @@ async def seed_user_preferences_with_vectors(
         True if seeding was successful, False otherwise
     """
     try:
-        from context_provider import create_vectorizer, create_search_index, store_preference
+        from redis.context_provider import create_vectorizer, create_search_index, store_preference
         import redis as redis_lib
         
         # Create vectorizer if not provided
@@ -257,7 +257,7 @@ async def seed_preferences_for_redis_provider(
         True if successful
     """
     try:
-        from redis_provider import create_vectorizer
+        from redis.redis_provider import create_vectorizer
         from redisvl.index import SearchIndex
         from redisvl.schema import IndexSchema
         import redis as redis_lib

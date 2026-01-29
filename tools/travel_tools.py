@@ -6,9 +6,7 @@ from datetime import datetime, timedelta
 
 # Import sandbox-specific implementations
 from .weather_sandbox_local import research_weather_local
-from .weather_sandbox_e2b import research_weather_e2b
 from .weather_sandbox_aca import research_weather_aca
-from .weather_sandbox_daytona import research_weather_daytona
 
 
 def create_research_weather_tool(sandbox_type: str) -> Callable:
@@ -17,22 +15,15 @@ def create_research_weather_tool(sandbox_type: str) -> Callable:
     with the appropriate sandbox backend.
     
     Args:
-        sandbox_type: One of "Local", "Sandbox-E2B", "Sandbox-Modal", "Sandbox-ACA", "Sandbox-Daytona"
+        sandbox_type: One of "Local", "ACA-DynamicSession"
     
     Returns:
         Callable tool function with the appropriate sandbox implementation
     """
     if sandbox_type == "Local":
         return research_weather_local
-    elif sandbox_type == "Sandbox-E2B":
-        return research_weather_e2b
-    elif sandbox_type == "Sandbox-Modal":
-        # TODO: Implement Modal sandbox
-        return research_weather_local  # Fallback to local for now
-    elif sandbox_type == "Sandbox-ACA":
+    elif sandbox_type == "ACA-DynamicSession":
         return research_weather_aca
-    elif sandbox_type == "Sandbox-Daytona":
-        return research_weather_daytona
     else:
         # Default to local if unknown type
         return research_weather_local

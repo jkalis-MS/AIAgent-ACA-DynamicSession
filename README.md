@@ -84,6 +84,9 @@ AZURE_OPENAI_ENDPOINT=https://your-openai-instance.openai.azure.com/
 AZURE_OPENAI_API_KEY=your_api_key_here
 AZURE_OPENAI_API_VERSION=preview
 AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4o
+
+# Application Insights (Optional - for monitoring and telemetry)
+APPLICATIONINSIGHTS_CONNECTION_STRING=InstrumentationKey=your-key-here;IngestionEndpoint=https://region.in.applicationinsights.azure.com/;LiveEndpoint=https://region.livediagnostics.monitor.azure.com/
 ```
 
 3. **Run the Application**
@@ -194,6 +197,13 @@ User: "What's the weather in Seattle next week?"
 - Check embedding deployment is configured correctly
 - Verify `AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME` environment variable
 - Azure Managed Redis Enterprise tier required for RediSearch
+
+**Application Insights Not Capturing Telemetry:**
+- Verify `APPLICATIONINSIGHTS_CONNECTION_STRING` is set correctly in `.env`
+- Check Application Insights resource is created in Azure Portal
+- The application captures Agent Framework spans: `invoke_agent`, `chat`, `execute_tool`
+- View telemetry in Azure Portal → Application Insights → Transaction search
+- Live metrics available for real-time monitoring
 
 **Import Errors:**
 - Run `pip install --upgrade -r requirements.txt`

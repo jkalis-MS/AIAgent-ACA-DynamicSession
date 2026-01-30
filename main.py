@@ -151,19 +151,9 @@ def main():
         logger.error(f"Failed to initialize Azure OpenAI Responses client: {e}")
         return
     
-    # Load users from seed.json
-    logger.info("Loading users from seed.json...")
-    users = []
-    try:
-        with open('seed.json', 'r') as f:
-            seed_data = json.load(f)
-            users = list(seed_data.get('user_memories', {}).keys())
-        logger.info(f"✓ Found {len(users)} users: {', '.join(users)}")
-    except Exception as e:
-        logger.error(f"Failed to load users: {e}")
-        # Default to these users if seed.json fails
-        users = ["Local", "ACA-DynamicSession"]
-        logger.info(f"✓ Using default users: {', '.join(users)}")
+    # Define demo users
+    users = ["Local", "ACA-DynamicSession"]
+    logger.info(f"✓ Using demo users: {', '.join(users)}")
     
     # Create one agent per user
     logger.info("Creating travel agents for each user...")

@@ -181,22 +181,11 @@ User: "What's the weather in Seattle next week?"
 - Ensure your Azure credentials have access to the session pool
 - Verify network configuration allows access from your environment
 
-**Redis Connection Error:**
-- Verify your REDIS_URL is correct
-- Check firewall rules allow your IP
-- Ensure SSL is enabled in connection string
-
 **Azure OpenAI Error:**
 - Verify endpoint and API key are correct
 - Check your deployment name matches
 - Ensure you have quota available
 - In case Agent Framework shows API invalid, please make sure your env file states AZURE_OPENAI_API_VERSION=preview
-
-**Vector Search Not Working:**
-- Ensure RediSearch module is enabled in your Redis instance
-- Check embedding deployment is configured correctly
-- Verify `AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME` environment variable
-- Azure Managed Redis Enterprise tier required for RediSearch
 
 **Application Insights Not Capturing Telemetry:**
 - Verify `APPLICATIONINSIGHTS_CONNECTION_STRING` is set correctly in `.env`

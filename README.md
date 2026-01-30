@@ -79,9 +79,6 @@ Create a `.env` file with your credentials:
 # Session Pool Configuration (Required)
 AZURE_CONTAINER_APP_SESSION_POOL_MANAGEMENT_ENDPOINT=https://your-session-pool-endpoint.region.azurecontainerapps.io
 
-# Redis Configuration
-REDIS_URL=redis://:your_password@your-redis-instance.redis.cache.windows.net:6380?ssl=True
-
 # Azure OpenAI Configuration
 AZURE_OPENAI_ENDPOINT=https://your-openai-instance.openai.azure.com/
 AZURE_OPENAI_API_KEY=your_api_key_here

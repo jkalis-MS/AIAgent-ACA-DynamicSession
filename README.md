@@ -200,10 +200,6 @@ User: "What's the weather in Seattle next week?"
 - Ensure Python 3.10+ is being used
 - Check virtual environment is activated
 
-## Credits
- - Jan Kalis, specifications, prompts and implementation
- - Jason Wang, Azure infrastructure configuration
-
 ## License
 
 MIT License - Sample/Demo Application

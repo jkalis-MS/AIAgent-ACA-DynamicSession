@@ -201,7 +201,7 @@ def main():
     # Start DevUI
     logger.info("Starting DevUI...")
     logger.info("=" * 60)
-    logger.info("🚀 Travel Chat Agents are ready! V3.0 (No Redis)")
+    logger.info("🚀 Travel Chat Agents are ready! V3.0")
     logger.info("=" * 60)
     logger.info("Access the DevUI in your browser to start chatting")
     logger.info(f"Available agents: {', '.join([a.name for a in agents])}")

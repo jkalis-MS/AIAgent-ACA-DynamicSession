@@ -209,11 +209,7 @@ Feels like: {{feels_f}}°F ({{f_to_c(feels_f)}}°C) | Wind: {{curr['wind_speed_1
     
     # Append debug timing information
     result += "\\n\\n⏱️ Debug Timing (Sandbox Execution):"
-    result += f"\\n  [1] Code started: 0ms"
-    result += f"\\n  [2] GPS lookup completed: {{checkpoint_2}}ms"
-    result += f"\\n  [3] Weather data obtained: {{checkpoint_3}}ms"
-    result += f"\\n  [4] Response formatted: {{checkpoint_4}}ms"
-    result += f"\\n  Total sandbox execution: {{checkpoint_4}}ms"
+    result += f"\\n  [1] Weather data obtained: {{checkpoint_4}}ms"
     
     print(result)
     
@@ -279,8 +275,16 @@ except Exception as e:
                 if isinstance(result_text, bytes):
                     result_text = result_text.decode('utf-8', errors='replace')
                 
-                # Append total execution time (includes network + ACA overhead)
-                result_text += f"\n  [5] Total end-to-end time: {execution_time}ms"
+                # Append total execution time and infrastructure overhead
+                sandbox_ms = 0
+                for line in result_text.split('\n'):
+                    if '[1] Weather data obtained:' in line:
+                        try:
+                            sandbox_ms = int(line.strip().split(':')[-1].strip().replace('ms', ''))
+                        except (ValueError, IndexError):
+                            pass
+                result_text += f"\n  [2] Total execution time: {execution_time}ms"
+                result_text += f"\n  Infrastructure time: {execution_time - sandbox_ms}ms"
                 
                 # Check if sandbox encountered network restrictions or errors
                 network_error_indicators = [

@@ -165,15 +165,11 @@ def research_weather_local(
     checkpoint_4 = int((time.time() - start_time) * 1000)  # After formatting
     
     # Append debug timing information
-    result += "\n\n⏱️ Debug Timing (Local Execution):"
-    result += f"\n  [1] Code started: 0ms"
-    result += f"\n  [2] GPS lookup completed: N/A (handled in get_weather_data)"
-    result += f"\n  [3] Weather data obtained: {checkpoint_3}ms"
-    result += f"\n  [4] Response formatted: {checkpoint_4}ms"
-    result += f"\n  Total local execution: {checkpoint_4}ms"
-    
     execution_time = int((time.time() - start_time) * 1000)
-    result += f"\n  [5] Total end-to-end time: {execution_time}ms"
+    result += "\n\n⏱️ Debug Timing (Local Execution):"
+    result += f"\n  [1] Weather data obtained: {checkpoint_4}ms"
+    result += f"\n  [2] Total execution time: {execution_time}ms"
+    result += f"\n  Infrastructure time: {execution_time - checkpoint_4}ms"
     
     logger.info(f"✅ Local execution finished for destination: {destination} ({execution_time}ms)")
     print(f"✅ Local execution finished for destination: {destination} ({execution_time}ms)")

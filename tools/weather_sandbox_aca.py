@@ -9,11 +9,6 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-# Module-level credential and token cache
-_aca_credential = None
-_aca_token = None
-_aca_token_expiry = None
-
 
 def research_weather_aca(
     destination: Annotated[str, "The destination to research weather for"],
@@ -36,65 +31,16 @@ To use ACA sandboxes:
 Using local weather data instead..."""
     
     try:
-        # Import Azure identity for authentication
-        from azure.identity import DefaultAzureCredential, ManagedIdentityCredential
+        from .aca_auth import get_aca_auth_header, execute_in_sandbox
         
         start_time = time.time()
         logger.info(f"☁️ ACA Sandbox creating for destination: {destination}")
         print(f"☁️ ACA Sandbox creating for destination: {destination}")
         
-        # Use module-level cached credential and token
-        global _aca_credential, _aca_token, _aca_token_expiry
+        auth_header, auth_time = get_aca_auth_header()
         
-        # Check if we need to get a new token
-        needs_new_token = (
-            _aca_token is None or 
-            _aca_token_expiry is None or 
-            datetime.now() >= _aca_token_expiry
-        )
-        
-        if needs_new_token:
-            # Create credential if not exists
-            if _aca_credential is None:
-                # Check if running in Azure Container Apps
-                managed_identity_client_id = os.getenv('AZURE_CLIENT_ID')
-                container_app_name = os.getenv('CONTAINER_APP_NAME')
-                
-                if managed_identity_client_id:
-                    # Use ManagedIdentityCredential with explicit client_id
-                    logger.info(f"🔐 Using ManagedIdentityCredential with client_id (Container App: {container_app_name})")
-                    _aca_credential = ManagedIdentityCredential(client_id=managed_identity_client_id)
-                elif container_app_name or os.getenv('WEBSITE_INSTANCE_ID'):
-                    # In Azure but no client_id provided, try system-assigned identity
-                    logger.info(f"🔐 Using ManagedIdentityCredential with system-assigned identity (Container App: {container_app_name})")
-                    _aca_credential = ManagedIdentityCredential()
-                else:
-                    # Running locally
-                    logger.info("🔐 Using DefaultAzureCredential (running locally)")
-                    _aca_credential = DefaultAzureCredential()
-            
-            # Get fresh access token
-            token_response = _aca_credential.get_token("https://dynamicsessions.io/.default")
-            _aca_token = token_response.token
-            
-            # Set expiry time (token valid for 1 hour, refresh 5 minutes early for safety)
-            _aca_token_expiry = datetime.now() + timedelta(seconds=token_response.expires_on - time.time() - 300)
-            
-            auth_time = int((time.time() - start_time) * 1000)
-            logger.info(f"🔑 New token obtained for ACA ({auth_time}ms, expires at {_aca_token_expiry.strftime('%H:%M:%S')})")
-            print(f"🔑 New token obtained for ACA ({auth_time}ms, expires at {_aca_token_expiry.strftime('%H:%M:%S')})")
-        else:
-            auth_time = int((time.time() - start_time) * 1000)
-            logger.info(f"♻️ Using cached token for ACA ({auth_time}ms, expires at {_aca_token_expiry.strftime('%H:%M:%S')})")
-            print(f"♻️ Using cached token for ACA ({auth_time}ms, expires at {_aca_token_expiry.strftime('%H:%M:%S')})")
-        
-        auth_header = f"Bearer {_aca_token}"
-        
-        # Generate a session identifier (use timestamp for unique sessions to avoid caching issues)
-        # Note: Each execution creates a new session - no session reuse
         session_id = f"weather-{destination.lower().replace(' ', '-')}-{int(time.time())}"
         
-        auth_time = int((time.time() - start_time) * 1000)
         logger.info(f"🔑 Identity for ACA ready ({auth_time}ms)")
         print(f"🔑 Identity for ACA ready ({auth_time}ms)")
     
@@ -152,7 +98,7 @@ try:
         f"https://api.open-meteo.com/v1/forecast?latitude={{lat}}&longitude={{lon}}"
         f"&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m"
         f"&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum"
-        f"&temperature_unit=fahrenheit&forecast_days=5",
+        f"&temperature_unit=fahrenheit&forecast_days=14",
         timeout=5
     ).json()
     
@@ -181,9 +127,9 @@ try:
 📅 Current: {{icons.get(curr['weather_code'], '🌡️')}} {{temp_f}}°F ({{f_to_c(temp_f)}}°C)
 Feels like: {{feels_f}}°F ({{f_to_c(feels_f)}}°C) | Wind: {{curr['wind_speed_10m']}} mph
 
-📆 5-Day Forecast:"""
+📆 14-Day Forecast:"""
     
-    for i in range(5):
+    for i in range(len(daily['time'])):
         high, low = daily['temperature_2m_max'][i], daily['temperature_2m_min'][i]
         result += f"\\n{{daily['time'][i]}}: {{icons.get(daily['weather_code'][i], '🌡️')}} {{high}}°F ({{f_to_c(high)}}°C) / {{low}}°F ({{f_to_c(low)}}°C)"
         if daily['precipitation_sum'][i] > 0:
@@ -192,8 +138,9 @@ Feels like: {{feels_f}}°F ({{f_to_c(feels_f)}}°C) | Wind: {{curr['wind_speed_1
     result += f"\\n\\n💡 Travel Dates: {{dates}}"
     
     # Add personalized weather tips
-    avg_high = sum(daily['temperature_2m_max'][:5]) / 5
-    has_rain = any(daily['precipitation_sum'][i] > 0.1 for i in range(5))
+    num_days = len(daily['temperature_2m_max'])
+    avg_high = sum(daily['temperature_2m_max'][:num_days]) / num_days
+    has_rain = any(daily['precipitation_sum'][i] > 0.1 for i in range(num_days))
     
     result += "\\n\\n👔 Packing Tips:"
     if avg_high > 75:
@@ -217,95 +164,64 @@ except Exception as e:
     print(f"⚠️ Error fetching weather data: {{str(e)}}")
 '''
         
-        # Execute code in ACA session via REST API
-        # POST https://<endpoint>/code/execute?api-version=2024-02-02-preview&identifier=<session_id>
+        # Execute code in ACA session via shared helper
         ready_time = int((time.time() - start_time) * 1000)
         logger.info(f"▶️ ACA Sandbox code execution starting for destination: {destination} ({ready_time}ms)")
         print(f"▶️ ACA Sandbox code execution starting for destination: {destination} ({ready_time}ms)")
        
-        execute_url = f"{pool_management_endpoint}/code/execute?api-version=2024-02-02-preview&identifier={session_id}"
-        
-        payload = {
-            "properties": {
-                "codeInputType": "inline",
-                "executionType": "synchronous",
-                "code": code
-            }
-        }
-        
-        headers = {
-            "Authorization": auth_header,
-            "Content-Type": "application/json; charset=utf-8"
-        }
-        
-        # Explicitly encode payload as UTF-8 JSON
-        json_payload = json.dumps(payload, ensure_ascii=False).encode('utf-8')
-        
-        response = requests.post(
-            execute_url, 
-            data=json_payload, 
-            headers=headers, 
-            timeout=30
+        exec_result = execute_in_sandbox(
+            code=code,
+            session_id=session_id,
+            pool_management_endpoint=pool_management_endpoint,
+            auth_header=auth_header,
+            timeout=30,
         )
-        response.raise_for_status()
         
         execution_time = int((time.time() - start_time) * 1000)
         logger.info(f"✅ ACA Sandbox execution finished for destination: {destination} ({execution_time}ms)")
         print(f"✅ ACA Sandbox execution finished for destination: {destination} ({execution_time}ms)")
         
-        # Parse response - explicitly handle UTF-8
-        response.encoding = 'utf-8'
-        result_data = response.json()
-                
         # Extract result from response
-        # Response format: {"properties": {"result": "...", "stdout": "...", "stderr": "..."}}
-        if result_data.get('properties'):
-            props = result_data['properties']
-            result_text = None
-            
-            if props.get('result'):
-                result_text = props['result']
-            elif props.get('stdout'):
-                result_text = props['stdout']
-            elif props.get('stderr'):
-                return f"⚠️ ACA Sandbox Error:\n{props['stderr']}"
-            
-            if result_text:
-                # Ensure proper UTF-8 handling for emoji and special characters
-                if isinstance(result_text, bytes):
-                    result_text = result_text.decode('utf-8', errors='replace')
-                
-                # Append total execution time and infrastructure overhead
-                sandbox_ms = 0
-                for line in result_text.split('\n'):
-                    if '[1] Weather data obtained:' in line:
-                        try:
-                            sandbox_ms = int(line.strip().split(':')[-1].strip().replace('ms', ''))
-                        except (ValueError, IndexError):
-                            pass
-                result_text += f"\n  [2] Total execution time: {execution_time}ms"
-                result_text += f"\n  Infrastructure time: {execution_time - sandbox_ms}ms"
-                
-                # Check if sandbox encountered network restrictions or errors
-                network_error_indicators = [
-                    "ProxyError", 
-                    "Unable to connect to proxy", 
-                    "Tunnel connection failed",
-                    "Failed to resolve",
-                    "NameResolutionError",
-                    "Max retries exceeded",
-                    "Error fetching weather data"
-                ]
-                
-                if any(indicator in result_text for indicator in network_error_indicators):
-                    logger.warning("⚠️ ACA sandbox network restriction detected - falling back to local execution")
-                    from .weather_sandbox_local import research_weather_local
-                    local_result = research_weather_local(destination, dates)
-                    return f"⚠️ ACA sandbox has network restrictions - executed locally instead\n\n{local_result}"
-                
-                return f"☁️ [Azure Container Apps Sandbox]\n{result_text}"
+        result_text = exec_result.get('result') or exec_result.get('stdout')
+        if not result_text and exec_result.get('stderr'):
+            return f"⚠️ ACA Sandbox Error:\n{exec_result['stderr']}"
         
-        return f"☁️ [Azure Container Apps Sandbox]\n{str(result_data)}"
+        if result_text:
+            # Ensure proper UTF-8 handling for emoji and special characters
+            if isinstance(result_text, bytes):
+                result_text = result_text.decode('utf-8', errors='replace')
+            
+            # Append total execution time and infrastructure overhead
+            sandbox_ms = 0
+            for line in result_text.split('\n'):
+                if '[1] Weather data obtained:' in line:
+                    try:
+                        sandbox_ms = int(line.strip().split(':')[-1].strip().replace('ms', ''))
+                    except (ValueError, IndexError):
+                        pass
+            result_text += f"\n  [2] Total execution time: {execution_time}ms"
+            result_text += f"\n  Infrastructure time: {execution_time - sandbox_ms}ms"
+            
+            # Check if sandbox encountered network restrictions or errors
+            network_error_indicators = [
+                "ProxyError", 
+                "Unable to connect to proxy", 
+                "Tunnel connection failed",
+                "Failed to resolve",
+                "NameResolutionError",
+                "Max retries exceeded",
+                "Error fetching weather data"
+            ]
+            
+            if any(indicator in result_text for indicator in network_error_indicators):
+                logger.warning("⚠️ ACA sandbox network restriction detected - falling back to local execution")
+                from .weather_sandbox_local import research_weather_local
+                local_result = research_weather_local(destination, dates)
+                return f"⚠️ ACA sandbox has network restrictions - executed locally instead\n\n{local_result}"
+            
+            return f"☁️ [Azure Container Apps Sandbox]\n{result_text}"
+        
+        return f"☁️ [Azure Container Apps Sandbox]\n{str(exec_result)}"
             
     except ImportError as e:
         logger.warning("⚠️ Azure Identity not available - falling back to local execution")

@@ -6,6 +6,11 @@ from typing import Annotated, Dict, Any
 
 logger = logging.getLogger(__name__)
 
+# Simple in-memory TTL cache for weather data
+# Avoids duplicate API calls when chart_weather runs right after research_weather
+_weather_cache: Dict[str, tuple] = {}  # key -> (timestamp, data)
+_CACHE_TTL = 600  # 10 minutes
+
 
 def get_weather_data(destination: str, dates: str = "current") -> Dict[str, Any]:
     """
@@ -19,6 +24,15 @@ def get_weather_data(destination: str, dates: str = "current") -> Dict[str, Any]
     Returns:
         dict with keys: destination, current, daily, dates, error (if any)
     """
+    # Check cache first
+    cache_key = destination.lower().strip()
+    if cache_key in _weather_cache:
+        cached_time, cached_data = _weather_cache[cache_key]
+        if time.time() - cached_time < _CACHE_TTL:
+            logger.info(f"♻️ Using cached weather data for {destination} ({int(time.time() - cached_time)}s old)")
+            print(f"♻️ Using cached weather data for {destination} ({int(time.time() - cached_time)}s old)")
+            return cached_data
+
     # Major city coordinates
     cities = {
         "new york": (40.7128, -74.0060), "los angeles": (34.0522, -118.2437),
@@ -58,17 +72,19 @@ def get_weather_data(destination: str, dates: str = "current") -> Dict[str, Any]
             f"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}"
             f"&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m"
             f"&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum"
-            f"&temperature_unit=fahrenheit&forecast_days=5",
+            f"&temperature_unit=fahrenheit&forecast_days=14",
             timeout=15
         ).json()
         
-        return {
+        result = {
             "destination": destination,
             "dates": dates,
             "current": weather['current'],
             "daily": weather['daily'],
             "error": None
         }
+        _weather_cache[cache_key] = (time.time(), result)
+        return result
         
     except Exception as e:
         return {
@@ -115,9 +131,9 @@ def format_weather_result(weather_data: Dict[str, Any]) -> str:
 📅 Current: {icons.get(curr['weather_code'], '🌡️')} {temp_f}°F ({f_to_c(temp_f)}°C)
 Feels like: {feels_f}°F ({f_to_c(feels_f)}°C) | Wind: {curr['wind_speed_10m']} mph
 
-📆 5-Day Forecast:"""
+📆 14-Day Forecast:"""
     
-    for i in range(5):
+    for i in range(len(daily['time'])):
         high, low = daily['temperature_2m_max'][i], daily['temperature_2m_min'][i]
         result += f"\n{daily['time'][i]}: {icons.get(daily['weather_code'][i], '🌡️')} {high}°F ({f_to_c(high)}°C) / {low}°F ({f_to_c(low)}°C)"
         if daily['precipitation_sum'][i] > 0:
@@ -126,8 +142,9 @@ Feels like: {feels_f}°F ({f_to_c(feels_f)}°C) | Wind: {curr['wind_speed_10m']}
     result += f"\n\n💡 Travel Dates: {dates}"
     
     # Add personalized weather tips
-    avg_high = sum(daily['temperature_2m_max'][:5]) / 5
-    has_rain = any(daily['precipitation_sum'][i] > 0.1 for i in range(5))
+    num_days = len(daily['temperature_2m_max'])
+    avg_high = sum(daily['temperature_2m_max'][:num_days]) / num_days
+    has_rain = any(daily['precipitation_sum'][i] > 0.1 for i in range(num_days))
     
     result += "\n\n👔 Packing Tips:"
     if avg_high > 75:

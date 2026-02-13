@@ -27,87 +27,47 @@ for logger_name in [
 ]:
     logging.getLogger(logger_name).setLevel(logging.ERROR)
 
-# Configure Azure Monitor FIRST (before any agent framework imports)
-# Following Pattern #3: Third party setup from Agent Framework documentation
-# https://learn.microsoft.com/en-us/agent-framework/user-guide/observability?pivots=programming-language-python#3-third-party-setup
+# Configure observability using Pattern #2: Custom Exporters
+# Only Agent Framework spans (invoke_agent, chat, execute_tool) — no auto-instrumentation
+# https://learn.microsoft.com/en-us/agent-framework/user-guide/observability?pivots=programming-language-python#2-custom-exporters
 app_insights_conn_string = os.getenv('APPLICATIONINSIGHTS_CONNECTION_STRING')
 if app_insights_conn_string:
-    conn_parts = dict(part.split('=', 1) for part in app_insights_conn_string.split(';') if '=' in part)
-    endpoint = conn_parts.get('IngestionEndpoint', 'unknown')
-    logger.info(f"🔗 Application Insights Connection String detected")
-    logger.info(f"   Endpoint: {endpoint}")
-    logger.info(f"   InstrumentationKey: {conn_parts.get('InstrumentationKey', 'unknown')[:8]}...")
-    
     try:
-        # CRITICAL: Disable ALL auto-instrumentations BEFORE importing Azure Monitor
-        # Azure Monitor's configure_azure_monitor() enables many instrumentations by default
-        # We ONLY want Agent Framework's manual spans (invoke_agent, chat, execute_tool)
-        os.environ["OTEL_PYTHON_DISABLED_INSTRUMENTATIONS"] = (
-            "httpx,httpcore,urllib,urllib3,requests,asgi,fastapi,flask,django,"
-            "psycopg2,dbapi,system_metrics"
+        from azure.monitor.opentelemetry.exporter import (
+            AzureMonitorTraceExporter,
+            AzureMonitorMetricExporter,
+            AzureMonitorLogExporter,
         )
-        
-        from azure.monitor.opentelemetry import configure_azure_monitor
-        from agent_framework.observability import create_resource, enable_instrumentation
-        
-        # Configure Azure Monitor with minimal instrumentation
-        resource = create_resource(
-            service_name="cool-vibes-travel-agent",
-            service_version="2.0.0"
+        from agent_framework.observability import configure_otel_providers
+
+        configure_otel_providers(
+            exporters=[
+                AzureMonitorTraceExporter(connection_string=app_insights_conn_string),
+                AzureMonitorMetricExporter(connection_string=app_insights_conn_string),
+                AzureMonitorLogExporter(connection_string=app_insights_conn_string),
+            ],
+            enable_sensitive_data=False,
         )
-        
-        # Disable all auto-instrumentations via instrumentation_options
-        configure_azure_monitor(
-            connection_string=app_insights_conn_string,
-            resource=resource,
-            enable_live_metrics=True,
-            # Disable ALL instrumentations - we only want manual Agent Framework spans
-            instrumentation_options={
-                "azure_sdk": {"enabled": False},
-                "django": {"enabled": False},
-                "fastapi": {"enabled": False},
-                "flask": {"enabled": False},
-                "psycopg2": {"enabled": False},
-                "requests": {"enabled": False},
-                "urllib": {"enabled": False},
-                "urllib3": {"enabled": False},
-            }
-        )
-        
-        # Then activate Agent Framework's telemetry code paths
-        # Only captures: invoke_agent, chat, execute_tool spans (the important ones)
-        enable_instrumentation(enable_sensitive_data=False)
-        
-        logger.info("✓ Azure Monitor configured with MINIMAL instrumentation")
-        logger.info("   ALL auto-instrumentations disabled (HTTP, DB, frameworks)")
-        logger.info("   ONLY Agent Framework manual spans enabled (invoke_agent, chat, execute_tool)")
-        
+
+        logger.info("✓ Agent Framework observability configured (Azure Monitor exporters)")
+
     except ImportError as e:
         logger.warning(f"⚠ Failed to import observability modules: {e}")
     except Exception as e:
-        logger.error(f"✗ Failed to configure Azure Monitor: {e}")
+        logger.error(f"✗ Failed to configure observability: {e}")
 else:
     logger.info("⚠ APPLICATIONINSIGHTS_CONNECTION_STRING not found, skipping observability")
 
 # NOW import agent_framework modules
-import asyncio
 from agent_framework.azure import AzureOpenAIResponsesClient
-from agent_framework import ChatAgent
-from agent_framework.devui import serve
-from azure.identity import AzureCliCredential
-from agent_framework.observability import get_tracer
+from agent_framework import Agent
 
 # AMR/AF: Tools and Agent section
 # Import tools
-from tools.user_tools import create_remember_preference_for_user
 from tools.travel_tools import (
     create_research_weather_tool,
-    research_destination,
-    find_flights,
-    find_accommodation,
-    booking_assistance
+    create_chart_weather_tool,
 )
-from tools.sports_tools import find_events, make_purchase
 
 # Import agent configurations
 from agents.travel_agent import (
@@ -151,50 +111,62 @@ def main():
         logger.error(f"Failed to initialize Azure OpenAI Responses client: {e}")
         return
     
-    # Define demo users
-    users = ["Local", "ACA-DynamicSession"]
-    logger.info(f"✓ Using demo users: {', '.join(users)}")
+    # Define agent configurations: (display_name, sandbox_key, description)
+    # ACA Dynamic Session is first = default in DevUI
+    agent_configs = [
+        (
+            "Tools run in ACA Dynamic Session",
+            "ACA-DynamicSession",
+            "Tools execute in a secure Azure Container Apps Dynamic Session sandbox — isolated from the main agent process.",
+        ),
+        (
+            "Tools run along main Agent",
+            "Local",
+            "Tools execute locally in the same process as the agent — simple, no sandbox isolation.",
+        ),
+    ]
+    logger.info(f"✓ Agents: {', '.join(name for name, _, _ in agent_configs)}")
     
-    # Create one agent per user
-    logger.info("Creating travel agents for each user...")
+    # Create one agent per configuration
+    logger.info("Creating travel agents...")
     agents = []
     
-    for user_name in users:
-        agent_name = f"{user_name}-cool-vibes-travel-agent"
-        
-        # Create user-specific remember_preference tool
-        remember_pref_tool = create_remember_preference_for_user(user_name)
+    for display_name, sandbox_key, agent_description in agent_configs:
         
         # Create sandbox-specific research_weather tool
-        research_weather_tool = create_research_weather_tool(user_name)
+        research_weather_tool = create_research_weather_tool(sandbox_key)
+        
+        # Create sandbox-specific chart_weather tool
+        chart_weather_tool = create_chart_weather_tool(
+            sandbox_type=sandbox_key,
+            azure_endpoint=azure_endpoint,
+            azure_key=azure_key,
+            azure_deployment=azure_deployment,
+            azure_api_version=azure_api_version,
+        )
         
         # Create travel agent tools list specific to this user
         travel_tools = [
-            remember_pref_tool,  # User-specific remember function
             research_weather_tool,  # Sandbox-specific weather research
-            # research_destination,
-            # find_flights,
-            # find_accommodation,
-            # booking_assistance,
-            # find_events,
-            # make_purchase
+            chart_weather_tool,  # Sandbox-specific weather charting
         ]
         
         try:
-            agent = ChatAgent(
-                name=agent_name,
-                chat_client=responses_client,
-                description=f"{TRAVEL_AGENT_DESCRIPTION} for {user_name} (using {user_name} sandbox)",
+            agent = Agent(
+                responses_client,
                 instructions=TRAVEL_AGENT_INSTRUCTIONS,
+                name=display_name,
+                description=agent_description,
                 tools=travel_tools
             )
             agents.append(agent)
             
-            sandbox_info = f"using {user_name} sandbox" if user_name != "Local" else "local execution"
-            logger.info(f"✓ {agent_name} created ({sandbox_info})")
+            tool_names = [getattr(t, '__name__', str(t)) for t in travel_tools]
+            logger.info(f"✓ '{display_name}' created (sandbox={sandbox_key})")
+            logger.info(f"  Tools: {tool_names}")
             
         except Exception as e:
-            logger.error(f"Failed to create agent for {user_name}: {e}")
+            logger.error(f"Failed to create agent '{display_name}': {e}")
     
     logger.info(f"✓ Created {len(agents)} travel agents")
     
@@ -211,12 +183,29 @@ def main():
     # Start DevUI with all user agents
     # Use 0.0.0.0 in containers, localhost for local dev
     host = os.getenv('HOST', '0.0.0.0')
-    serve(
-        entities=agents,
-        host=host,
-        port=8000,
-        auto_open=False
-    )
+    port = int(os.getenv('PORT', '80'))
+
+    # Use DevServer directly so we can serve chart images
+    from agent_framework.devui import DevServer
+    from tools.chart_server import CHART_DIR
+    from starlette.staticfiles import StaticFiles
+    from starlette.routing import Mount
+    import uvicorn
+
+    os.makedirs(CHART_DIR, exist_ok=True)
+
+    dev_server = DevServer(port=port, host=host)
+    dev_server._pending_entities = agents
+    app = dev_server.get_app()
+
+    # Insert a /charts static-file mount BEFORE the DevUI catch-all "/" mount.
+    # Starlette iterates app.routes in order, so position 0 guarantees our
+    # mount is checked first, preventing the "/" mount from shadowing it.
+    app.routes.insert(0, Mount("/charts", app=StaticFiles(directory=CHART_DIR), name="charts"))
+
+    logger.info(f"📂 Charts served at /charts from {CHART_DIR}")
+
+    uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 if __name__ == "__main__":

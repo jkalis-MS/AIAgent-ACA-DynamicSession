@@ -1,204 +1,157 @@
-# Travel Chat Agent with Azure Container Apps Dynamic Sessions
+# Cool Vibes Travel Agent 🌴
 
-A Travel Chat Agent built with Microsoft Agent Framework and Azure OpenAI that handles destination research, real-time weather analysis, flight searches, hotel accommodations, and sports event bookings. The agent dynamically executes Python code in secure, isolated Azure Container Apps Session Pools for live calculations and API integrations.
+A travel planning agent built with [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) and Azure OpenAI. What makes it interesting is **how tools run code safely** — the agent sends LLM-generated Python to an [Azure Container Apps Dynamic Session Pool](https://learn.microsoft.com/azure/container-apps/sessions), a sandboxed code interpreter that executes untrusted code in an isolated container, completely separate from the agent process.
 
-## How Tools Execute Python in Session Pools
+## Why Session Pools matter
+
+When an AI agent needs to run code — fetch live weather data, generate charts, do math — you have two options: run it in your process (risky) or run it in a sandbox (safe). This project demonstrates both side by side. The ACA Dynamic Session agent sends LLM-generated code to a managed sandbox with network egress, file I/O, and pre-installed packages — but zero access to your host.
+
+The key moment happens here, in [chart_sandbox_aca.py](tools/chart_sandbox_aca.py):
 
 ```python
-# When the agent needs to check weather, it calls this tool:
-async def get_weather_for_location(location: str, dates: list[str]) -> str:
-    # Code that will run in the session pool
-    code = f"""
-import requests
-from datetime import datetime
-
-location = "{location}"
-dates = {dates}
-
-# Fetch weather data from API
-response = requests.get(f"https://api.weather.com/forecast/{{location}}")
-data = response.json()
-
-# Process and format results
-results = []
-for date in dates:
-    temp = data['forecast'][date]['temperature']
-    conditions = data['forecast'][date]['conditions']
-    results.append(f"{{date}}: {{temp}}°F, {{conditions}}")
-
-print("\\n".join(results))
-"""
-    
-    # Execute in isolated session pool
-    result = await session_pool_client.execute_code(code)
-    return result.stdout
+exec_result = execute_in_sandbox(
+    code=sandbox_code,
+    session_id=session_id,
+    pool_management_endpoint=pool_management_endpoint,
+    auth_header=auth_header,
+    timeout=60,
+)
 ```
 
-## Setup Session Pool (Required for Local and Cloud)
+The agent asks Azure OpenAI to generate matplotlib charting code, then ships it to a Session Pool for execution. The sandbox runs the code, saves a PNG, and the agent downloads it back. If anything fails, it falls back to local execution gracefully.
 
-Before running the application, create an Azure Container Apps Session Pool using `az containerapp up`:
+## Architecture
+
+![Travel Agent Architecture](docs/architecture.png)
+
+| Component | Purpose |
+|---|---|
+| **Microsoft Agent Framework** | Agent runtime with middleware, telemetry, and DevUI |
+| **Azure OpenAI (GPT-4o)** | LLM for conversation and code generation |
+| **ACA Session Pools** | Sandboxed Python code interpreter (PythonLTS, Dynamic) |
+| **Azure Container Apps** | Hosts the agent as a container |
+| **Application Insights** | Observability — `invoke_agent`, `chat`, `execute_tool` spans |
+
+## Usage
+
+The agent ships with two variants you can switch between in the DevUI dropdown:
+
+- **Tools run in ACA Dynamic Session** *(default)* — tools execute in a secure sandbox
+- **Tools run along main Agent** — tools execute locally in the agent process
+
+### Example conversation
+
+**Prompt 1** — Say hello and let it learn your preferences:
+> Hey
+
+The agent greets you and asks what kind of trip you're looking for.
+
+**Prompt 2** — Ask for weather-based travel advice:
+> I'm contemplating between Miami and Tokyo in May depending on weather.
+
+The agent calls the `research_weather` tool to fetch 14-day forecasts for both cities, then presents a side-by-side comparison with temperatures, precipitation, and rainy days. It suggests creating a visual chart.
+
+**Prompt 3** — Request the chart:
+> yes, please plot the chart
+
+The agent generates matplotlib code via Azure OpenAI, executes it in the ACA Session Pool sandbox, downloads the resulting PNG, and displays a dark-themed dual-subplot chart comparing temperature trends and precipitation bars for both cities.
+
+## Setup
+
+### Prerequisites
+
+- Python 3.11+
+- [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
+- An Azure subscription
+- An Azure OpenAI resource with a GPT-4o deployment
+
+### Run locally
+
+1. **Clone and install dependencies**
 
 ```powershell
-# Login to Azure
-az login
-
-# Set variables
-$RESOURCE_GROUP = "rg-travel-agent"
-$LOCATION = "eastus"
-
-# Create session pool with az containerapp up
-az containerapp up `
-  --name travel-agent-sessionpool `
-  --resource-group $RESOURCE_GROUP `
-  --location $LOCATION `
-  --environment travel-agent-env `
-  --image mcr.microsoft.com/k8se/services/code-interpreter:latest `
-  --session-pool `
-  --max-sessions 10 `
-  --cooldown-period 300
-
-# Get the session pool management endpoint
-az containerapp sessionpool show `
-  --name travel-agent-sessionpool `
-  --resource-group $RESOURCE_GROUP `
-  --query "properties.poolManagementEndpoint" -o tsv
+git clone <repo-url>
+cd AF.AMR.VibeCoded
+python -m venv .venv
+.venv\Scripts\activate
+pip install --pre -r requirements.txt
 ```
 
-Save the endpoint URL for your `.env` configuration.## Run Locally
+2. **Configure environment**
 
-1. **Install Dependencies**
-```powershell
-pip install -r requirements.txt
-```
+Copy `.env.example` to `.env` and fill in your values:
 
-2. **Configure Environment**
-
-Create a `.env` file with your credentials:
-
-```
-# Session Pool Configuration (Required)
-AZURE_CONTAINER_APP_SESSION_POOL_MANAGEMENT_ENDPOINT=https://your-session-pool-endpoint.region.azurecontainerapps.io
-
-# Azure OpenAI Configuration
-AZURE_OPENAI_ENDPOINT=https://your-openai-instance.openai.azure.com/
-AZURE_OPENAI_API_KEY=your_api_key_here
+```dotenv
+# Azure OpenAI (required)
+AZURE_OPENAI_ENDPOINT=https://your-instance.openai.azure.com/
+AZURE_OPENAI_API_KEY=your_api_key
 AZURE_OPENAI_API_VERSION=preview
 AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4o
 
-# Application Insights (Optional - for monitoring and telemetry)
-APPLICATIONINSIGHTS_CONNECTION_STRING=InstrumentationKey=your-key-here;IngestionEndpoint=https://region.in.applicationinsights.azure.com/;LiveEndpoint=https://region.livediagnostics.monitor.azure.com/
+# ACA Session Pool (required for sandbox agent, optional for local agent)
+ACA_POOL_MANAGEMENT_ENDPOINT=https://your-region.dynamicsessions.io/subscriptions/.../sessionPools/your-pool
+
+# Application Insights (optional)
+APPLICATIONINSIGHTS_CONNECTION_STRING=InstrumentationKey=...
 ```
 
-3. **Run the Application**
+3. **Run the application**
+
 ```powershell
 python main.py
 ```
 
-4. **Access DevUI**
+4. **Open DevUI** at `http://localhost:80`, select an agent from the dropdown, and start chatting.
 
-Open your browser to `http://localhost:8000` to interact with the agent.
+### Deploy to Azure
 
-## Project Structure
+The project includes full infrastructure-as-code via Bicep. A single command provisions everything — Azure OpenAI, Container Apps, Session Pool with egress enabled, Container Registry, Application Insights, and managed identity with the correct role assignments.
+
+```powershell
+azd auth login
+azd init
+azd up
+```
+
+This will:
+- Build the Docker image
+- Create a resource group with all Azure resources
+- Push the image to Azure Container Registry
+- Deploy to Azure Container Apps
+- Configure the Session Pool with `EgressEnabled` network access
+- Wire up all environment variables and managed identity credentials
+
+### Project structure
 
 ```
-travel-agent/
+├── main.py                           # Entry point — creates agents, starts DevUI
 ├── agents/
-│   └── travel_agent.py              # Travel agent definition and instructions
+│   └── travel_agent.py               # Agent name, description, and system instructions
 ├── tools/
-│   ├── weather_sandbox_aca.py       # Weather tool using session pool
-│   ├── weather_sandbox_local.py     # Local weather tool
-│   ├── user_tools.py                # User preference tools
-│   ├── travel_tools.py              # Travel research tools
-│   └── sports_tools.py              # Sports event tools
-├── data/
-│   ├── sample_sport_events.py       # Sports event sample data
-│   └── sample_sport_venues.py       # Venue seating sample data
+│   ├── aca_auth.py                   # ACA Session Pool auth and execution helpers
+│   ├── chart_sandbox_aca.py          # LLM-generated chart code → ACA sandbox
+│   ├── chart_sandbox_local.py        # Local chart generation fallback
+│   ├── chart_server.py               # Chart URL helpers (served by main app)
+│   ├── weather_sandbox_aca.py        # Weather research in ACA sandbox
+│   ├── weather_sandbox_local.py      # Local weather research (Open-Meteo API)
+│   └── travel_tools.py               # Tool factory — routes to local or ACA
 ├── infra/
-│   └── main.bicep                   # Infrastructure as code
-├── seed.json                        # User preferences seed data
-├── main.py                          # Application entry point
-└── requirements.txt                 # Python dependencies
+│   ├── main.bicep                    # Orchestrator — all Azure resources
+│   ├── main.parameters.json
+│   └── core/                         # Bicep modules (host, ai, security, monitor)
+├── azure.yaml                        # azd project definition
+├── Dockerfile                        # Python 3.11 container
+└── requirements.txt
 ```
 
-## Agent Architecture
+## Documentation
 
-### Travel Agent
-- Destination research and recommendations
-- Real-time weather analysis (via session pool)
-- Flight and accommodation search
-- Sports event booking
-- Preference learning and retrieval
-
-### Tools
-
-**Session Pool Tools:**
-- `get_weather_for_location` - Dynamic weather analysis in isolated Python environment
-
-**User Preference Tools:**
-- `remember_preference` - Store user preferences with vector embeddings
-- `get_semantic_preferences` - Semantic search for preferences
-
-**Travel Tools:**
-- `research_destination` - Destination information
-- `find_flights` - Flight options
-- `find_accommodation` - Hotel recommendations
-- `booking_assistance` - General booking support
-
-**Sports Tools:**
-- `find_events` - Search professional sports events
-- `make_purchase` - Book tickets
-
-## How It Works
-
-## How It Works
-
-**Session Pool Execution:**
-- Agent receives user request requiring live data/calculation
-- Tool generates Python code dynamically
-- Code executes in isolated session pool container
-- Results returned to agent for response
-
-**Conversation Memory:**
-- All conversations stored in Azure Managed Redis
-- User preferences stored with vector embeddings
-- Semantic search retrieves relevant context automatically
-
-**Example Interaction:**
-```
-User: "What's the weather in Seattle next week?"
-→ Agent calls get_weather_for_location tool
-→ Tool generates Python code to fetch and analyze weather data
-→ Code executes in session pool with internet access
-→ Results returned: "Feb 15: 52°F, Partly Cloudy..."
-→ Agent responds with formatted weather information
-```
-
-## Troubleshooting
-
-**Session Pool Connection Error:**
-- Verify `AZURE_CONTAINER_APP_SESSION_POOL_MANAGEMENT_ENDPOINT` is set correctly
-- Check that session pool is in "Succeeded" provisioning state
-- Ensure your Azure credentials have access to the session pool
-- Verify network configuration allows access from your environment
-
-**Azure OpenAI Error:**
-- Verify endpoint and API key are correct
-- Check your deployment name matches
-- Ensure you have quota available
-- In case Agent Framework shows API invalid, please make sure your env file states AZURE_OPENAI_API_VERSION=preview
-
-**Application Insights Not Capturing Telemetry:**
-- Verify `APPLICATIONINSIGHTS_CONNECTION_STRING` is set correctly in `.env`
-- Check Application Insights resource is created in Azure Portal
-- The application captures Agent Framework spans: `invoke_agent`, `chat`, `execute_tool`
-- View telemetry in Azure Portal → Application Insights → Transaction search
-- Live metrics available for real-time monitoring
-
-**Import Errors:**
-- Run `pip install --upgrade -r requirements.txt`
-- Ensure Python 3.10+ is being used
-- Check virtual environment is activated
+- [Microsoft Agent Framework](https://github.com/microsoft/agent-framework)
+- [Azure Container Apps Dynamic Sessions](https://learn.microsoft.com/azure/container-apps/sessions)
+- [Azure Container Apps Session Pools — Code Interpreter](https://learn.microsoft.com/azure/container-apps/sessions-code-interpreter)
+- [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/)
+- [Azure OpenAI Service](https://learn.microsoft.com/azure/ai-services/openai/)
 
 ## License
 
-MIT License - Sample/Demo Application
+MIT License — Sample/Demo Application

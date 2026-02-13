@@ -1,5 +1,5 @@
-# Microsoft Agent Framework - use latest versions
-agent-framework>=1.0.0b260107
+# Microsoft Agent Framework - pinned to known working version
+agent-framework==1.0.0b260210
 
 # Azure Monitoring - Use Distro for automatic instrumentation
 azure-monitor-opentelemetry
@@ -12,3 +12,9 @@ python-dotenv
 
 # Weather API
 requests
+
+# OpenAI SDK (for LLM code generation in chart tool)
+openai
+
+# Charting (for local chart generation)
+matplotlib

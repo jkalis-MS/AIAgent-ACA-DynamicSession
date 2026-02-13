@@ -1,12 +1,11 @@
 """Travel-related tools for the travel agent."""
-from typing import Annotated, Callable
-import random
-import requests
-from datetime import datetime, timedelta
+from typing import Callable
 
 # Import sandbox-specific implementations
 from .weather_sandbox_local import research_weather_local
 from .weather_sandbox_aca import research_weather_aca
+from .chart_sandbox_local import chart_weather_local
+from .chart_sandbox_aca import _create_chart_weather_aca
 
 
 def create_research_weather_tool(sandbox_type: str) -> Callable:
@@ -29,185 +28,43 @@ def create_research_weather_tool(sandbox_type: str) -> Callable:
         return research_weather_local
 
 
-# Keep the original function for backward compatibility
-def research_weather(
-    destination: Annotated[str, "The destination to research weather for"],
-    dates: Annotated[str, "Travel dates (optional)"] = "current"
-) -> str:
-    """Get weather information for a destination (default Local execution)."""
-    return research_weather_local(destination, dates)
+def create_chart_weather_tool(
+    sandbox_type: str,
+    azure_endpoint: str = "",
+    azure_key: str = "",
+    azure_deployment: str = "",
+    azure_api_version: str = "preview",
+) -> Callable:
+    """
+    Factory function to create the chart_weather tool
+    with the appropriate sandbox backend.
 
+    For ACA mode, this creates a closure with an Azure OpenAI client
+    that generates chart code dynamically via LLM.
 
-def research_destination(
-    destination: Annotated[str, "The destination to research"],
-    interests: Annotated[str, "Travel interests or preferences"] = "general tourism"
-) -> str:
-    """Research destination attractions and cultural insights."""
-    # Mock destination data
-    destinations = {
-        "new york": {
-            "attractions": "Empire State Building, Central Park, Times Square, Statue of Liberty, Broadway shows",
-            "culture": "Diverse cultural scene with world-class museums, restaurants, and entertainment",
-            "highlights": "The city that never sleeps! Famous for its iconic skyline, diverse neighborhoods, and vibrant arts scene."
-        },
-        "los angeles": {
-            "attractions": "Hollywood Sign, Santa Monica Pier, Getty Center, Griffith Observatory, Venice Beach",
-            "culture": "Entertainment capital with beaches, studios, and diverse culinary scene",
-            "highlights": "Sunny weather year-round, perfect for beach lovers and movie enthusiasts."
-        },
-        "chicago": {
-            "attractions": "Millennium Park, Navy Pier, Art Institute of Chicago, Willis Tower, Magnificent Mile",
-            "culture": "Architecture, deep-dish pizza, blues music, and lakefront activities",
-            "highlights": "Beautiful architecture and lakefront views, famous for its food scene."
-        },
-        "boston": {
-            "attractions": "Freedom Trail, Fenway Park, Boston Common, Museum of Fine Arts, Quincy Market",
-            "culture": "Historic city with colonial charm, academic atmosphere, and seafood",
-            "highlights": "Rich American history and charming neighborhoods."
-        }
-    }
-    
-    dest_lower = destination.lower()
-    if dest_lower in destinations:
-        info = destinations[dest_lower]
-        return f"""
-📍 {destination.title()} Travel Guide
+    Args:
+        sandbox_type: One of "Local", "ACA-DynamicSession"
+        azure_endpoint: Azure OpenAI endpoint (required for ACA)
+        azure_key: Azure OpenAI API key (required for ACA)
+        azure_deployment: Azure OpenAI deployment name (required for ACA)
+        azure_api_version: Azure OpenAI API version
 
-✨ Highlights: {info['highlights']}
-
-🎭 Top Attractions: {info['attractions']}
-
-🌆 Cultural Scene: {info['culture']}
-
-Interests noted: {interests}
-"""
+    Returns:
+        Callable tool function
+    """
+    if sandbox_type == "ACA-DynamicSession" and azure_endpoint and azure_key:
+        try:
+            tool = _create_chart_weather_aca(
+                azure_endpoint=azure_endpoint,
+                azure_key=azure_key,
+                azure_deployment=azure_deployment,
+                azure_api_version=azure_api_version,
+            )
+            print(f"📊 Chart tool created: ACA mode (function={tool.__name__})")
+            return tool
+        except Exception as e:
+            print(f"❌ Failed to create ACA chart tool: {e} — falling back to local")
+            return chart_weather_local
     else:
-        return f"{destination} is a wonderful destination! Popular for its unique attractions and local culture. Consider exploring local markets, historic sites, and trying regional cuisine."
-
-
-def find_flights(
-    origin: Annotated[str, "Departure city or airport (REQUIRED - must ask user if not provided)"],
-    destination: Annotated[str, "Arrival city or airport (REQUIRED - must ask user if not provided)"],
-    dates: Annotated[str, "Travel dates"] = "flexible",
-    budget: Annotated[str, "Budget preference"] = "moderate"
-) -> str:
-    """Search for flight options. MUST have both origin and destination."""
-    # Mock flight data
-    airlines = ["Delta", "American Airlines", "United", "JetBlue"]
-    
-    flight1 = {
-        "airline": random.choice(airlines),
-        "price": "$" + str(random.randint(200, 400)),
-        "duration": f"{random.randint(2, 5)}h {random.randint(0, 55)}m",
-        "stops": "Nonstop"
-    }
-    
-    flight2 = {
-        "airline": random.choice(airlines),
-        "price": "$" + str(random.randint(150, 300)),
-        "duration": f"{random.randint(4, 8)}h {random.randint(0, 55)}m",
-        "stops": "1 stop"
-    }
-    
-    return f"""
-✈️ Flight Options from {origin} to {destination}
-
-📅 Dates: {dates}
-💰 Budget: {budget}
-
-Option 1: {flight1['airline']}
-  • Price: {flight1['price']}
-  • Duration: {flight1['duration']}
-  • Stops: {flight1['stops']}
-
-Option 2: {flight2['airline']}
-  • Price: {flight2['price']}
-  • Duration: {flight2['duration']}
-  • Stops: {flight2['stops']}
-
-Would you like to proceed with booking?
-"""
-
-
-def find_accommodation(
-    destination: Annotated[str, "Destination city"],
-    dates: Annotated[str, "Check-in and check-out dates"] = "flexible",
-    budget: Annotated[str, "Budget level"] = "moderate",
-    accommodation_type: Annotated[str, "Type preference (hotel, boutique, resort, etc.)"] = "any"
-) -> str:
-    """Search for accommodation options."""
-    # Mock accommodation data
-    
-    if "boutique" in accommodation_type.lower():
-        return f"""
-🏨 Boutique Hotel Options in {destination}
-
-📅 Dates: {dates}
-💰 Budget: {budget}
-
-1. The Artisan Boutique Hotel
-   • $280/night
-   • Stylish rooms with unique decor
-   • Rooftop bar and local art gallery
-   • Rating: ⭐⭐⭐⭐⭐ 4.8/5
-
-2. Heritage Boutique Inn
-   • $240/night
-   • Historic building with modern amenities
-   • Complimentary wine tasting
-   • Rating: ⭐⭐⭐⭐ 4.6/5
-
-Perfect for travelers who appreciate unique, personalized experiences!
-"""
-    else:
-        return f"""
-🏨 Accommodation Options in {destination}
-
-📅 Dates: {dates}
-💰 Budget: {budget}
-
-1. Grand Plaza Hotel
-   • $180/night
-   • Central location, modern amenities
-   • Gym and pool access
-   • Rating: ⭐⭐⭐⭐ 4.5/5
-
-2. Comfort Suites Downtown
-   • $150/night
-   • Great value, clean rooms
-   • Free breakfast included
-   • Rating: ⭐⭐⭐⭐ 4.3/5
-
-3. Luxury Resort & Spa
-   • $320/night
-   • Premium experience with spa
-   • Fine dining on-site
-   • Rating: ⭐⭐⭐⭐⭐ 4.9/5
-"""
-
-
-def booking_assistance(
-    booking_type: Annotated[str, "Type of booking (flight, hotel, package, etc.)"],
-    details: Annotated[str, "Booking details and requirements"]
-) -> str:
-    """Provide general booking support and coordination."""
-    return f"""
-📝 Booking Assistance for {booking_type}
-
-I can help you with:
-✓ Comparing prices and options
-✓ Understanding cancellation policies
-✓ Coordinating multiple bookings
-✓ Travel insurance recommendations
-✓ Special requests and accommodations
-
-Details noted: {details}
-
-To proceed with booking, I recommend:
-1. Reviewing the options carefully
-2. Checking cancellation policies
-3. Considering travel insurance
-4. Having your payment information ready
-
-Would you like me to provide more specific information about any of these steps?
-"""
+        print(f"📊 Chart tool created: Local mode (sandbox_type={sandbox_type}, endpoint={'set' if azure_endpoint else 'empty'}, key={'set' if azure_key else 'empty'})")
+        return chart_weather_local

@@ -18,11 +18,12 @@ RUN pip install --no-cache-dir --pre -r requirements.txt
 # Copy application code
 COPY . .
 
-# Expose port 8000
-EXPOSE 8000
+# Expose port 80
+EXPOSE 80
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
+ENV OTEL_SERVICE_NAME=cool-vibes-travel-agent
 
 # Run the application
 CMD ["python", "main.py"]

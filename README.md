@@ -56,6 +56,8 @@ The agent calls the `research_weather` tool to fetch 14-day forecasts for both c
 
 The agent generates matplotlib code via Azure OpenAI, executes it in the ACA Session Pool sandbox, downloads the resulting PNG, and displays a dark-themed dual-subplot chart comparing temperature trends and precipitation bars for both cities.
 
+![Chart example](docs/chart.png)
+
 ## Setup
 
 ### Prerequisites
